@@ -1,113 +1,81 @@
 import uuid
-
 from fastapi import HTTPException
-from sqlmodel import Session
 
-from exception_handlers import error_response
-from repositories.note_repo import (
-    create_note as repo_create_note,
-    delete_note as repo_delete_note,
-    get_all_notes as repo_get_all_notes,
-    get_note_by_id as repo_get_note_by_id,
-    save_note as repo_save_note,
-)
-from repositories.user_repo import (
-    create_user as repo_create_user,
-    get_user_by_username as repo_get_user_by_username,
-)
+from models import Note, User
 from schemas import NoteCreate, NoteUpdate
+from exception_handlers import error_response
+from repositories.note_repo import NoteRepository
+from repositories.user_repo import UserRepository
 
 
-def get_or_create_user(session: Session, username: str):
-    user = repo_get_user_by_username(session, username)
-    if not user:
-        user = repo_create_user(session, username)
-    return user
+class NoteService:
+    def __init__(self, note_repo: NoteRepository, user_repo: UserRepository):
+        self.note_repo = note_repo
+        self.user_repo = user_repo
 
+    def get_all_notes(self):
+        return self.note_repo.get_all_notes()
 
-def create_note(session: Session, note_data: NoteCreate):
-    user = get_or_create_user(session, note_data.username)
-
-    return repo_create_note(
-        session=session,
-        text=note_data.text,
-        important=note_data.important,
-        user_id=user.id
-    )
-
-
-def get_notes(session: Session):
-    return repo_get_all_notes(session)
-
-
-def get_note(session: Session, note_id: uuid.UUID):
-    note = repo_get_note_by_id(session, note_id)
-    if not note:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("Note not found.", "NOTE_NOT_FOUND")
-        )
-    return note
-
-
-def replace_note(session: Session, note_id: uuid.UUID, note_data: NoteCreate):
-    db_note = repo_get_note_by_id(session, note_id)
-    if not db_note:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("Note not found.", "NOTE_NOT_FOUND")
-        )
-
-    user = get_or_create_user(session, note_data.username)
-
-    db_note.text = note_data.text
-    db_note.important = note_data.important
-    db_note.user_id = user.id
-
-    return repo_save_note(session, db_note)
-
-
-def update_note(session: Session, note_id: uuid.UUID, note_data: NoteUpdate):
-    db_note = repo_get_note_by_id(session, note_id)
-    if not db_note:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("Note not found.", "NOTE_NOT_FOUND")
-        )
-
-    if note_data.text is None and note_data.important is None and note_data.username is None:
-        raise HTTPException(
-            status_code=400,
-            detail=error_response(
-                "At least one field must be provided for update.",
-                "EMPTY_UPDATE"
+    def get_note(self, note_id: uuid.UUID):
+        note = self.note_repo.get_note_by_id(note_id)
+        if not note:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("Note not found", "NOTE_NOT_FOUND")
             )
+        return note
+
+    def get_or_create_user(self, username: str):
+        user = self.user_repo.get_user_by_username(username)
+        if not user:
+            user = User(username=username)
+            user = self.user_repo.create_user(user)
+        return user
+
+    def create_note(self, note_data: NoteCreate):
+        user = self.get_or_create_user(note_data.username)
+
+        note = Note(
+            text=note_data.text,
+            important=note_data.important,
+            user_id=user.id
         )
+        return self.note_repo.create_note(note)
 
-    if note_data.username is not None:
-        user = get_or_create_user(session, note_data.username)
-        db_note.user_id = user.id
+    def update_note(self, note_id: uuid.UUID, note_data: NoteUpdate):
+        note = self.note_repo.get_note_by_id(note_id)
+        if not note:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("Note not found", "NOTE_NOT_FOUND")
+            )
 
-    if note_data.text is not None:
-        db_note.text = note_data.text
+        update_data = note_data.model_dump(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(
+                status_code=400,
+                detail=error_response("No fields provided for update", "EMPTY_UPDATE")
+            )
 
-    if note_data.important is not None:
-        db_note.important = note_data.important
+        if "username" in update_data:
+            user = self.get_or_create_user(update_data["username"])
+            note.user_id = user.id
 
-    return repo_save_note(session, db_note)
+        if "text" in update_data:
+            note.text = update_data["text"]
 
+        if "important" in update_data:
+            note.important = update_data["important"]
 
-def remove_note(session: Session, note_id: uuid.UUID):
-    db_note = repo_get_note_by_id(session, note_id)
-    if not db_note:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("Note not found.", "NOTE_NOT_FOUND")
-        )
+        return self.note_repo.save_note(note)
 
-    repo_delete_note(session, db_note)
+    def delete_note(self, note_id: uuid.UUID):
+        note = self.note_repo.get_note_by_id(note_id)
+        if not note:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("Note not found", "NOTE_NOT_FOUND")
+            )
 
-    return {
-        "success": True,
-        "message": f"Note with id {note_id} deleted successfully"
-    }
+        self.note_repo.delete_note(note)
+        return {"message": f"Note with id {note_id} deleted"}

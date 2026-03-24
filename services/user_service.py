@@ -1,68 +1,57 @@
 import uuid
-
 from fastapi import HTTPException
-from sqlmodel import Session
 
+from models import User
 from exception_handlers import error_response
-from repositories.note_repo import get_notes_by_user_id
-from repositories.user_repo import (
-    create_user as repo_create_user,
-    delete_user as repo_delete_user,
-    get_all_users as repo_get_all_users,
-    get_user_by_id as repo_get_user_by_id,
-    get_user_by_username as repo_get_user_by_username,
-)
-from schemas import UserCreate
+from repositories.note_repo import NoteRepository
+from repositories.user_repo import UserRepository
 
 
-def create_user(session: Session, user_data: UserCreate):
-    existing = repo_get_user_by_username(session, user_data.username)
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=error_response("Username already exists.", "USERNAME_TAKEN")
-        )
+class UserService:
+    def __init__(self, user_repo: UserRepository, note_repo: NoteRepository):
+        self.user_repo = user_repo
+        self.note_repo = note_repo
 
-    return repo_create_user(session, user_data.username)
+    def get_all_users(self):
+        return self.user_repo.get_all_users()
 
+    def get_user(self, user_id: uuid.UUID):
+        user = self.user_repo.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("User not found", "USER_NOT_FOUND")
+            )
+        return user
 
-def get_users(session: Session):
-    return repo_get_all_users(session)
+    def create_user(self, username: str):
+        existing_user = self.user_repo.get_user_by_username(username)
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail=error_response("Username already exists", "USERNAME_EXISTS")
+            )
 
+        user = User(username=username)
+        return self.user_repo.create_user(user)
 
-def get_user(session: Session, user_id: uuid.UUID):
-    user = repo_get_user_by_id(session, user_id)
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("User not found.", "USER_NOT_FOUND")
-        )
-    return user
+    def delete_user(self, user_id: uuid.UUID):
+        user = self.user_repo.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("User not found", "USER_NOT_FOUND")
+            )
 
+        self.user_repo.delete_user(user)
+        return {"message": f"User with id {user_id} deleted"}
 
-def remove_user(session: Session, user_id: uuid.UUID):
-    user = repo_get_user_by_id(session, user_id)
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("User not found.", "USER_NOT_FOUND")
-        )
+    def get_user_notes_by_username(self, username: str):
+        user = self.user_repo.get_user_by_username(username)
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail=error_response("User not found", "USER_NOT_FOUND")
+            )
 
-    username = user.username
-    repo_delete_user(session, user)
-
-    return {
-        "success": True,
-        "message": f"User '{username}' deleted successfully"
-    }
-
-
-def get_user_notes_by_username(session: Session, username: str):
-    user = repo_get_user_by_username(session, username)
-    if not user:
-        raise HTTPException(
-            status_code=404,
-            detail=error_response("User not found.", "USER_NOT_FOUND")
-        )
-
-    return get_notes_by_user_id(session, user.id)
+        return self.note_repo.get_notes_by_user_id(user.id)

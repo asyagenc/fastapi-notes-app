@@ -4,35 +4,32 @@ from sqlmodel import Session, select
 from models import Note
 
 
-def get_all_notes(session: Session):
-    return session.exec(select(Note)).all()
+class NoteRepository:
+    def __init__(self, session: Session):
+        self.session = session
 
+    def get_all_notes(self):
+        return self.session.exec(select(Note)).all()
 
-def get_note_by_id(session: Session, note_id: uuid.UUID):
-    return session.get(Note, note_id)
+    def get_note_by_id(self, note_id: uuid.UUID):
+        return self.session.get(Note, note_id)
 
+    def get_notes_by_user_id(self, user_id: uuid.UUID):
+        statement = select(Note).where(Note.user_id == user_id)
+        return self.session.exec(statement).all()
 
-def get_notes_by_user_id(session: Session, user_id: uuid.UUID):
-    return session.exec(
-        select(Note).where(Note.user_id == user_id)
-    ).all()
+    def create_note(self, note: Note):
+        self.session.add(note)
+        self.session.commit()
+        self.session.refresh(note)
+        return note
 
+    def save_note(self, note: Note):
+        self.session.add(note)
+        self.session.commit()
+        self.session.refresh(note)
+        return note
 
-def create_note(session: Session, text: str, important: bool, user_id):
-    note = Note(text=text, important=important, user_id=user_id)
-    session.add(note)
-    session.commit()
-    session.refresh(note)
-    return note
-
-
-def save_note(session: Session, note: Note):
-    session.add(note)
-    session.commit()
-    session.refresh(note)
-    return note
-
-
-def delete_note(session: Session, note: Note):
-    session.delete(note)
-    session.commit()
+    def delete_note(self, note: Note):
+        self.session.delete(note)
+        self.session.commit()

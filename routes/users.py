@@ -1,42 +1,32 @@
 import uuid
-
 from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from database import get_session
-from models import Note, User
-from schemas import UserCreate
-from services.user_service import (
-    create_user,
-    get_user,
-    get_user_notes_by_username,
-    get_users,
-    remove_user,
-)
+from repositories.note_repo import NoteRepository
+from repositories.user_repo import UserRepository
+from services.user_service import UserService
+from models import User, Note
 
-router = APIRouter(prefix="/users")
+router = APIRouter()
 
 
-@router.post("", response_model=User)
-def create_user_route(user: UserCreate, session: Session = Depends(get_session)):
-    return create_user(session, user)
+def get_user_service(session: Session = Depends(get_session)) -> UserService:
+    user_repo = UserRepository(session)
+    note_repo = NoteRepository(session)
+    return UserService(user_repo, note_repo)
 
 
-@router.get("", response_model=list[User])
-def get_users_route(session: Session = Depends(get_session)):
-    return get_users(session)
+@router.get("/users", response_model=list[User])
+def get_users(service: UserService = Depends(get_user_service)):
+    return service.get_all_users()
 
 
-@router.get("/{user_id}", response_model=User)
-def get_user_route(user_id: uuid.UUID, session: Session = Depends(get_session)):
-    return get_user(session, user_id)
+@router.get("/users/{user_id}", response_model=User)
+def get_user(user_id: uuid.UUID, service: UserService = Depends(get_user_service)):
+    return service.get_user(user_id)
 
 
-@router.delete("/{user_id}")
-def delete_user_route(user_id: uuid.UUID, session: Session = Depends(get_session)):
-    return remove_user(session, user_id)
-
-
-@router.get("/{username}/notes", response_model=list[Note])
-def get_notes_by_username_route(username: str, session: Session = Depends(get_session)):
-    return get_user_notes_by_username(session, username)
+@router.get("/users/{username}/notes", response_model=list[Note])
+def get_user_notes(username: str, service: UserService = Depends(get_user_service)):
+    return service.get_user_notes_by_username(username)
